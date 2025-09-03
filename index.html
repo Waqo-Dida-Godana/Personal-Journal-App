@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Personal Journal App</title>
+  <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    .hidden { display: none; }
+    .emoji-selected { border: 2px solid #4f46e5; border-radius: 50%; }
+    .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+    @keyframes fadeIn { from {opacity:0;} to {opacity:1;} }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+
+  <!-- Login Overlay -->
+  <div id="loginOverlay" class="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75">
+    <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-sm">
+      <h2 class="text-xl font-bold mb-4">Login to Journal</h2>
+      <form id="loginForm" class="space-y-4">
+        <input id="password" type="password" placeholder="Enter Password" class="w-full p-2 border rounded">
+        <button type="submit" class="w-full bg-indigo-600 text-white p-2 rounded">Login</button>
+      </form>
+      <p id="loginError" class="text-red-500 text-sm mt-2 hidden">Invalid password. Try again.</p>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="appContainer" class="hidden w-full max-w-3xl">
+    <header class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">📝 My Journal</h1>
+      <button id="logoutBtn" class="bg-red-500 text-white px-4 py-2 rounded">Logout</button>
+    </header>
+
+    <!-- Actions -->
+    <div class="flex justify-between items-center mb-4">
+      <button id="newEntryBtn" class="bg-indigo-600 text-white px-4 py-2 rounded">+ New Entry</button>
+      <div>
+        <input id="searchInput" type="text" placeholder="Search..." class="p-2 border rounded">
+        <input id="dateFilter" type="date" class="p-2 border rounded">
+      </div>
+    </div>
+
+    <!-- Entries -->
+    <div id="entriesContainer" class="space-y-4"></div>
+    <p id="noEntriesMessage" class="text-gray-500 hidden">No journal entries yet.</p>
+  </div>
+
+  <!-- Modals (new entry, edit, delete, etc.) go here -->
+  <!-- Keeping just one for brevity -->
+  <div id="newEntryModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden flex items-center justify-center">
+    <div class="bg-white p-6 rounded-lg w-full max-w-md">
+      <h2 class="text-lg font-bold mb-4">New Journal Entry</h2>
+      <form id="entryForm" class="space-y-3">
+        <input id="entry-title" type="text" placeholder="Title" class="w-full p-2 border rounded">
+        <textarea id="entry-content" placeholder="Write your thoughts..." class="w-full p-2 border rounded"></textarea>
+        <input type="hidden" id="entryMoodInput">
+        <div class="flex space-x-2">
+          <span class="cursor-pointer text-2xl" data-emoji="😊">😊</span>
+          <span class="cursor-pointer text-2xl" data-emoji="😐">😐</span>
+          <span class="cursor-pointer text-2xl" data-emoji="😔">😔</span>
+        </div>
+        <div class="flex justify-end space-x-2 mt-4">
+          <button type="button" id="cancelEntryBtn" class="px-4 py-2 border rounded">Cancel</button>
+          <button type="button" id="saveEntryBtn" class="px-4 py-2 bg-indigo-600 text-white rounded">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const JOURNAL_PASSWORD = "journal123"; // ← change password here
+    const STORAGE_KEY = "my_journal_entries";
+
+    const loginOverlay = document.getElementById("loginOverlay");
+    const loginForm = document.getElementById("loginForm");
+    const loginError = document.getElementById("loginError");
+    const appContainer = document.getElementById("appContainer");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const newEntryBtn = document.getElementById("newEntryBtn");
+    const newEntryModal = document.getElementById("newEntryModal");
+    const cancelEntryBtn = document.getElementById("cancelEntryBtn");
+    const saveEntryBtn = document.getElementById("saveEntryBtn");
+    const entryForm = document.getElementById("entryForm");
+    const entryMoodInput = document.getElementById("entryMoodInput");
+    const searchInput = document.getElementById("searchInput");
+    const dateFilter = document.getElementById("dateFilter");
+    const entriesContainer = document.getElementById("entriesContainer");
+    const noEntriesMessage = document.getElementById("noEntriesMessage");
+    const emojiSelectors = document.querySelectorAll("[data-emoji]");
+
+    let entries = [];
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const isLoggedIn = sessionStorage.getItem("journal_logged_in");
+      if (isLoggedIn) showApp();
+
+      loginForm.addEventListener("submit", handleLogin);
+      logoutBtn.addEventListener("click", handleLogout);
+      newEntryBtn.addEventListener("click", () => openModal(newEntryModal));
+      cancelEntryBtn.addEventListener("click", () => closeModal(newEntryModal));
+      saveEntryBtn.addEventListener("click", handleSaveEntry);
+      emojiSelectors.forEach(sel => {
+        sel.addEventListener("click", () => {
+          emojiSelectors.forEach(s => s.classList.remove("emoji-selected"));
+          sel.classList.add("emoji-selected");
+          entryMoodInput.value = sel.dataset.emoji;
+        });
+      });
+      searchInput.addEventListener("input", renderEntries);
+      dateFilter.addEventListener("change", renderEntries);
+
+      loadEntries();
+    });
+
+    function handleLogin(e) {
+      e.preventDefault();
+      const password = document.getElementById("password").value;
+      if (password === JOURNAL_PASSWORD) {
+        sessionStorage.setItem("journal_logged_in", "true");
+        showApp();
+      } else {
+        loginError.classList.remove("hidden");
+        document.getElementById("password").value = "";
+      }
+    }
+
+    function handleLogout() {
+      sessionStorage.removeItem("journal_logged_in");
+      loginOverlay.classList.remove("hidden");
+      appContainer.classList.add("hidden");
+    }
+
+    function showApp() {
+      loginOverlay.classList.add("hidden");
+      appContainer.classList.remove("hidden");
+      renderEntries();
+    }
+
+    function openModal(modal) { modal.classList.remove("hidden"); }
+    function closeModal(modal) { modal.classList.add("hidden"); }
+
+    function handleSaveEntry() {
+      const title = document.getElementById("entry-title").value.trim();
+      const content = document.getElementById("entry-content").value.trim();
+      const mood = entryMoodInput.value || "📝";
+      if (!title || !content) { alert("Fill in both fields"); return; }
+
+      const newEntry = {
+        id: Date.now().toString(),
+        title,
+        content,
+        mood,
+        date: new Date().toISOString()
+      };
+      entries.unshift(newEntry);
+      saveEntries();
+      renderEntries();
+      closeModal(newEntryModal);
+      entryForm.reset();
+      emojiSelectors.forEach(s => s.classList.remove("emoji-selected"));
+    }
+
+    function loadEntries() {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) entries = JSON.parse(stored);
+      renderEntries();
+    }
+
+    function saveEntries() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+    }
+
+    function renderEntries() {
+      entriesContainer.innerHTML = "";
+      let filtered = [...entries];
+
+      if (dateFilter.value) {
+        const selected = new Date(dateFilter.value);
+        selected.setHours(0,0,0,0);
+        filtered = filtered.filter(e => {
+          const d = new Date(e.date);
+          d.setHours(0,0,0,0);
+          return d.getTime() === selected.getTime();
+        });
+      }
+
+      const searchTerm = searchInput.value.toLowerCase().trim();
+      if (searchTerm) {
+        filtered = filtered.filter(e => 
+          e.title.toLowerCase().includes(searchTerm) ||
+          e.content.toLowerCase().includes(searchTerm)
+        );
+      }
+
+      if (filtered.length === 0) {
+        noEntriesMessage.classList.remove("hidden");
+        return;
+      } else {
+        noEntriesMessage.classList.add("hidden");
+      }
+
+      filtered.forEach(entry => {
+        const date = new Date(entry.date).toLocaleDateString();
+        const card = document.createElement("div");
+        card.className = "bg-white p-4 rounded shadow";
+        card.innerHTML = `
+          <div class="flex justify-between">
+            <div>
+              <p class="text-sm text-gray-500">${date}</p>
+              <h3 class="font-bold">${entry.title}</h3>
+            </div>
+            <span class="text-2xl">${entry.mood}</span>
+          </div>
+          <p class="text-gray-700 mt-2">${entry.content}</p>
+        `;
+        entriesContainer.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>
